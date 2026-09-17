@@ -67,15 +67,15 @@ jobs:
 
           # 재실행(re-run)은 처음 실행 당시의 커밋을 체크아웃하므로, 그 사이 올라간 상태
           # 커밋 때문에 push 가 거절된다. 방금 만든 상태 파일이 가장 최신 값이니 원격
-          # main 위로 옮겨 놓고 커밋한다. (concurrency 로 동시 실행은 막혀 있다.)
+          # 브랜치 위로 옮겨 놓고 커밋한다. (concurrency 로 동시 실행은 막혀 있다.)
           [ -f filedata_state.json ] || exit 0
           cp filedata_state.json "$RUNNER_TEMP/filedata_state.json"
-          git fetch origin main
-          git reset --hard origin/main
+          git fetch origin "$GITHUB_REF_NAME"
+          git reset --hard FETCH_HEAD
           cp "$RUNNER_TEMP/filedata_state.json" filedata_state.json
 
           git add -- filedata_state.json
           git diff --staged --quiet || {
             git commit -m "chore: update dataset state [skip ci]"
-            git push
+            git push origin "HEAD:$GITHUB_REF_NAME"
           }
