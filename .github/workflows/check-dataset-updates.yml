@@ -13,56 +13,36 @@ concurrency:
   group: check-dataset-updates
   cancel-in-progress: false
 
+# data.go.kr 은 일부 리전의 러너에서 오는 연결을 받지 않는다(연결 타임아웃).
+# 러너는 job 마다 새로 배정되므로, 실패하면 다른 종류의 러너로 옮겨 다시 시도한다.
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    # 상태 파일을 되커밋해야 하므로 쓰기 권한이 필요하다.
+  x64:
+    uses: ./.github/workflows/_check.yml
+    with:
+      runner: ubuntu-latest
+      last-attempt: false
+    secrets: inherit
     permissions:
       contents: write
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+  arm:
+    needs: x64
+    if: needs.x64.outputs.outcome != 'success'
+    uses: ./.github/workflows/_check.yml
+    with:
+      runner: ubuntu-24.04-arm
+      last-attempt: false
+    secrets: inherit
+    permissions:
+      contents: write
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: pip
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Check dataset updates
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-        run: python check_filedata_changes.py
-
-      # 상태 파일이 곧 '지난번에 본 값' 이다. 되돌려 커밋하지 않으면 매 실행이 첫
-      # 실행이 되어 갱신을 영영 감지하지 못한다.
-      #
-      # 변경이 없는 날에도 last_check 가 바뀌어 커밋이 남는다. 일부러 그대로 둔다 —
-      # GitHub 은 60일 동안 활동이 없는 저장소의 예약 워크플로를 꺼버리는데, 이
-      # 데이터는 분기에 한 번만 바뀌므로 그 사이에 감시가 멈춘다.
-      - name: Commit state
-        if: always()
-        run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-
-          # 재실행(re-run)은 처음 실행 당시의 커밋을 체크아웃하므로, 그 사이 올라간 상태
-          # 커밋 때문에 push 가 거절된다. 방금 만든 상태 파일이 가장 최신 값이니 원격
-          # main 위로 옮겨 놓고 커밋한다. (concurrency 로 동시 실행은 막혀 있다.)
-          [ -f filedata_state.json ] || exit 0
-          cp filedata_state.json "$RUNNER_TEMP/filedata_state.json"
-          git fetch origin main
-          git reset --hard origin/main
-          cp "$RUNNER_TEMP/filedata_state.json" filedata_state.json
-
-          git add -- filedata_state.json
-          git diff --staged --quiet || {
-            git commit -m "chore: update dataset state [skip ci]"
-            git push
-          }
+  macos:
+    needs: arm
+    if: needs.arm.outputs.outcome == 'failure'
+    uses: ./.github/workflows/_check.yml
+    with:
+      runner: macos-latest
+      last-attempt: true
+    secrets: inherit
+    permissions:
+      contents: write

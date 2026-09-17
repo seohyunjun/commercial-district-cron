@@ -1,0 +1,81 @@
+name: Check dataset updates (runner)
+
+# check-dataset-updates.yml 이 러너만 바꿔 가며 부른다. 단독으로 실행하지 않는다.
+on:
+  workflow_call:
+    inputs:
+      runner:
+        required: true
+        type: string
+      last-attempt:
+        description: 마지막 시도면 접속 실패를 워크플로 실패로 남기고 상태도 커밋한다
+        required: true
+        type: boolean
+    outputs:
+      outcome:
+        value: ${{ jobs.check.outputs.outcome }}
+
+jobs:
+  check:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 10
+
+    # 상태 파일을 되커밋해야 하므로 쓰기 권한이 필요하다.
+    permissions:
+      contents: write
+
+    outputs:
+      outcome: ${{ steps.check.outcome }}
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check dataset updates
+        id: check
+        continue-on-error: ${{ !inputs.last-attempt }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: python check_filedata_changes.py
+
+      # 상태 파일이 곧 '지난번에 본 값' 이다. 되돌려 커밋하지 않으면 매 실행이 첫
+      # 실행이 되어 갱신을 영영 감지하지 못한다.
+      #
+      # 변경이 없는 날에도 last_check 가 바뀌어 커밋이 남는다. 일부러 그대로 둔다 —
+      # GitHub 은 60일 동안 활동이 없는 저장소의 예약 워크플로를 꺼버리는데, 이
+      # 데이터는 분기에 한 번만 바뀌므로 그 사이에 감시가 멈춘다.
+      #
+      # 접속에 실패했고 다음 러너가 다시 시도할 거면 커밋하지 않는다.
+      - name: Commit state
+        if: always() && (steps.check.outcome == 'success' || inputs.last-attempt)
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+
+          # 재실행(re-run)은 처음 실행 당시의 커밋을 체크아웃하므로, 그 사이 올라간 상태
+          # 커밋 때문에 push 가 거절된다. 방금 만든 상태 파일이 가장 최신 값이니 원격
+          # main 위로 옮겨 놓고 커밋한다. (concurrency 로 동시 실행은 막혀 있다.)
+          [ -f filedata_state.json ] || exit 0
+          cp filedata_state.json "$RUNNER_TEMP/filedata_state.json"
+          git fetch origin main
+          git reset --hard origin/main
+          cp "$RUNNER_TEMP/filedata_state.json" filedata_state.json
+
+          git add -- filedata_state.json
+          git diff --staged --quiet || {
+            git commit -m "chore: update dataset state [skip ci]"
+            git push
+          }

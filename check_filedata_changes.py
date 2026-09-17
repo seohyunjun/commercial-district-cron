@@ -37,8 +37,8 @@ SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
 # 기다리기보다 짧게 끊고 여러 번 다시 시도하는 편이 잘 붙는다.
 TIMEOUT = (10, 30)
 RETRY = Retry(
-    total=5,
-    backoff_factor=5,  # 0, 10, 20, 40, 80초 간격
+    total=3,
+    backoff_factor=5,  # 0, 10, 20초 간격 — 그래도 안 되면 워크플로가 다른 러너로 넘긴다
     status_forcelist=(429, 500, 502, 503, 504),
     allowed_methods=("GET",),
 )
