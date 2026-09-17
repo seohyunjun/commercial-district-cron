@@ -75,8 +75,15 @@ def fetch(url):
     response = session.get(
         url,
         timeout=TIMEOUT,
-        # 기본 User-Agent 로도 열리지만, 차단 정책이 생기면 여기부터 손보게 된다.
-        headers={"User-Agent": "insure-detect-cron/1.0 (dataset update monitor)"},
+        # 봇처럼 보이는 User-Agent 는 걸러질 수 있어 일반 브라우저 값으로 보낸다.
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+        },
     )
     response.raise_for_status()
     return response.text
