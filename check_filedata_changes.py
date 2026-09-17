@@ -26,12 +26,22 @@ from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 load_dotenv()
 
 STATE_FILE = Path(__file__).parent / "filedata_state.json"
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
-TIMEOUT = 30
+# (연결, 읽기). 포털이 GitHub 러너에서 간헐적으로 연결을 받지 않는다 — 한 번에 30초를
+# 기다리기보다 짧게 끊고 여러 번 다시 시도하는 편이 잘 붙는다.
+TIMEOUT = (10, 30)
+RETRY = Retry(
+    total=5,
+    backoff_factor=5,  # 0, 10, 20, 40, 80초 간격
+    status_forcelist=(429, 500, 502, 503, 504),
+    allowed_methods=("GET",),
+)
 
 # 감시 대상. 한 줄 더하면 데이터셋이 하나 더 늘어난다.
 # kind 는 포털의 상세 페이지 경로다 — 파일데이터는 fileData, 오픈API는 openapi.
@@ -60,7 +70,9 @@ def dataset_url(dataset):
 
 
 def fetch(url):
-    response = requests.get(
+    session = requests.Session()
+    session.mount("https://", HTTPAdapter(max_retries=RETRY))
+    response = session.get(
         url,
         timeout=TIMEOUT,
         # 기본 User-Agent 로도 열리지만, 차단 정책이 생기면 여기부터 손보게 된다.
