@@ -32,6 +32,24 @@ jobs:
         shell: bash
 
     steps:
+      # data.go.kr 이 막는 리전을 나중에 가려내려면 어느 러너가 어디서 돌았는지 남아 있어야
+      # 한다. 실행 요약(Summary)에서 바로 볼 수 있게 적는다.
+      - name: Show runner location
+        continue-on-error: true
+        run: |
+          azure_region=$(curl -s --max-time 3 -H Metadata:true \
+            'http://169.254.169.254/metadata/instance/compute/location?api-version=2021-02-01&format=text' || true)
+          geo=$(curl -s --max-time 5 https://ipinfo.io/json || true)
+          ip=$(echo "$geo" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("ip",""))' 2>/dev/null || true)
+          place=$(echo "$geo" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(", ".join(filter(None,[d.get("city"),d.get("region"),d.get("country")])))' 2>/dev/null || true)
+          echo "runner=${{ inputs.runner }} azure_region=${azure_region:-unknown} ip=${ip:-unknown} location=${place:-unknown}"
+          {
+            echo "### Runner location (${{ inputs.runner }})"
+            echo "| Azure region | Public IP | Location |"
+            echo "|---|---|---|"
+            echo "| ${azure_region:-unknown} | ${ip:-unknown} | ${place:-unknown} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
